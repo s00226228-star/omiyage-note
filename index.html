@@ -17,9 +17,9 @@ function toast(s){let x=$('#toast');x.textContent=s;x.style.display='block';clea
 function go(page,extra={}){view={page,...extra};history.pushState({omiyageView:view},'',location.href);render();window.scrollTo(0,0)}
 window.addEventListener('popstate',e=>{view=e.state?.omiyageView||{page:'home'};editingId=null;draftPhotos=[];render();window.scrollTo(0,0)});
 if(!history.state?.omiyageView)history.replaceState({omiyageView:{page:'home'}},'',location.href);
-function heading(s,back=false){$('#title').textContent=s;$('#back').classList.toggle('hide',!back);$('#topAdd').classList.toggle('hide',view.page==='add'||view.page==='import');document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.nav===view.page||(['region','pref','detail'].includes(view.page)&&x.dataset.nav==='home')))}
+function heading(s,back=false){$('#title').textContent=s;$('#back').classList.toggle('hide',!back);$('#topAdd').classList.toggle('hide',view.page==='add'||view.page==='import'||view.page==='zipimport');document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.nav===view.page||(['region','pref','detail'].includes(view.page)&&x.dataset.nav==='home')))}
 function btn(text,fn,cls='btn'){return el('button',{class:cls,text,onclick:fn})}function card(){return el('div',{class:'card'})}function line(s,cl=''){return el('div',{class:cl,text:s})}
-function render(){let m=$('#main');m.replaceChildren();let p=view.page;heading(({home:'お土産手帖',region:view.region,pref:view.pref,detail:'商品詳細',add:editingId?'商品を編集':'商品を登録',search:'全国検索',settings:'設定',import:'JSON一括登録'})[p]||'お土産手帖',!['home','search','settings'].includes(p));if(p==='home')home(m);if(p==='region')region(m);if(p==='pref')listing(m,view.pref);if(p==='search')search(m);if(p==='detail')detail(m);if(p==='add')form(m);if(p==='settings')settings(m);if(p==='import')importPage(m)}
+function render(){let m=$('#main');m.replaceChildren();let p=view.page;heading(({home:'お土産手帖',region:view.region,pref:view.pref,detail:'商品詳細',add:editingId?'商品を編集':'商品を登録',search:'全国検索',settings:'設定',import:'JSON一括登録',zipimport:'画像ZIP一括登録'})[p]||'お土産手帖',!['home','search','settings'].includes(p));if(p==='home')home(m);if(p==='region')region(m);if(p==='pref')listing(m,view.pref);if(p==='search')search(m);if(p==='detail')detail(m);if(p==='add')form(m);if(p==='settings')settings(m);if(p==='import')importPage(m);if(p==='zipimport')zipImportPage(m)}
 function home(m){m.append(line('地域から探す','section'));let g=el('div',{class:'grid'});for(let [r,ps] of Object.entries(REGIONS)){let n=items.filter(i=>ps.includes(i.prefecture)).length;g.append(el('button',{class:'tile',onclick:()=>go('region',{region:r}),html:`<strong>${esc(r)}</strong><span class="muted small">${n}件</span>`}))}m.append(g);m.append(line('最近登録した商品','section'));productList(m,sortItems(items).slice(0,6),true);if(!items.length)m.append(el('div',{class:'notice',text:'まずは「登録」から商品を追加するか、ChatGPTが作成したJSONを貼り付けてください。'}))}
 function region(m){let ps=REGIONS[view.region]||[];m.append(line('都道府県を選択','section'));let g=el('div',{class:'grid'});for(let p of ps){let n=items.filter(i=>i.prefecture===p).length;g.append(el('button',{class:'tile',onclick:()=>go('pref',{pref:p,region:view.region}),html:`<strong>${esc(p)}</strong><span class="muted small">${n}件</span>`}))}m.append(g)}
 function sortItems(a){let b=[...a];if(filter.sort==='rating')b.sort((x,y)=>RATINGS.indexOf(x.rating||'未評価')-RATINGS.indexOf(y.rating||'未評価')||(y.createdAt||'').localeCompare(x.createdAt||''));else b.sort((x,y)=>(y.createdAt||'').localeCompare(x.createdAt||''));return b}
@@ -41,7 +41,107 @@ const photoStats=()=>{let count=0,chars=0;for(let p of items)for(let photo of p.
 function normalized(o){let p={...o};p.name=String(p.name||'').trim();p.shop=String(p.shop||'');p.prefecture=String(p.prefecture||'');p.rating=RATINGS.includes(p.rating)?p.rating:'未評価';p.status=STATUSES.includes(p.status)?p.status:'未購入';p.genres=Array.isArray(p.genres)?p.genres.filter(x=>GENRES.includes(x)).slice(0,2):[];p.photos=Array.isArray(p.photos)?p.photos.filter(x=>typeof x==='string'&&x.startsWith('data:image/')).slice(0,5):[];p.imageUrls=imageURLs(o);p.savedImageUrls=Array.isArray(o.savedImageUrls)?o.savedImageUrls.filter(x=>typeof x==='string'):[];for(let k of ['description','memo','price','purchaseInfo','url','sourceUrl'])p[k]=String(p[k]||'');return p}
 function importPage(m){m.append(el('div',{class:'notice',text:'商品情報と画像URL（imageUrls：最大3件）をJSONで登録できます。画像は取得できた場合だけ端末に保存します。外部サイトの制限により取得できないことがあります。'}));let ta=el('textarea',{class:'search',style:'margin-top:15px;min-height:240px',placeholder:'{"name":"商品名","prefecture":"岩手県","imageUrls":["https://example.com/photo.jpg"]}'});m.append(ta);let progress=line('','small muted');m.append(progress);let submit=btn('JSONを読み込む',async()=>{let data;try{data=JSON.parse(ta.value)}catch{return alert('JSON形式が正しくありません')}let arr=Array.isArray(data)?data:Array.isArray(data.products)?data.products:[data];if(!arr.length)return alert('商品がありません');let added=0,merged=0,skipped=0,success=0,failed=0,lastSavedId=null;submit.disabled=true;try{for(let i=0;i<arr.length;i++){progress.textContent=`${arr.length}商品のうち${i+1}商品を処理中（画像保存：成功${success}枚／失敗${failed}枚）`;let raw=arr[i];if(!raw||typeof raw!=='object'){skipped++;continue}let p=normalized(raw);if(!p.name||!PREFS.includes(p.prefecture)){skipped++;continue}let old=items.find(x=>x.name.trim().toLowerCase()===p.name.toLowerCase()&&x.prefecture===p.prefecture);let kind='new';if(old){let choice=prompt(`「${p.name}」は登録済みです。\n1：既存商品に統合（既存の評価・メモ・写真を優先）\n2：別商品として追加\n3：スキップ`,'3');if(choice==='3'||choice===null){skipped++;continue}if(choice==='1'){let newUrls=imageURLs(raw);p={...old,...Object.fromEntries(Object.entries(p).filter(([k,v])=>!['rating','status','memo','photos','createdAt','id','savedImageUrls','imageUrls'].includes(k)&&v!==''&&!(Array.isArray(v)&&!v.length))),imageUrls:[...new Set([...(old.imageUrls||[]),...newUrls])].slice(0,3),updatedAt:now()};kind='merged'}else if(choice!=='2'){skipped++;continue}}if(kind==='new')p={...p,id:uid(),createdAt:new Date(Date.now()+added).toISOString(),updatedAt:now()};let urls=imageURLs(raw);let result=await addRemotePhotos(p,urls);success+=result.success;failed+=result.failed;try{await put(p);lastSavedId=p.id;if(kind==='merged')merged++;else added++}catch(e){alert('保存中にエラーが発生しました。保存容量をご確認ください。');break}}progress.textContent=`完了：新規${added}件・統合${merged}件・スキップ${skipped}件／写真成功${success}枚・失敗${failed}枚`;alert(progress.textContent);if(lastSavedId)go('detail',{id:lastSavedId})}finally{submit.disabled=false}},'btn full');m.append(submit);m.append(line('画像URLの入力例','section'));let ex=card();ex.append(el('pre',{class:'pre tiny',text:JSON.stringify({name:'商品名',shop:'店舗名',prefecture:'岩手県',imageUrls:['https://example.com/photo1.jpg','https://example.com/photo2.jpg']},null,2)}));m.append(ex)}
 function download(name,contents,type){let a=document.createElement('a'),u=URL.createObjectURL(new Blob([contents],{type}));a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),3000)}
-function settings(m){m.append(line('データ管理','section'));let c=card();c.append(line(`登録商品：${items.length}件`,'muted'));let stats=photoStats();c.append(line(`保存写真：${stats.count}枚／推定画像容量：${(stats.bytes/1024/1024).toFixed(1)}MB`,'muted small'));c.append(line('画像データの概算値です。ブラウザ全体の使用容量とは異なります。','tiny muted'));c.append(el('div',{style:'height:12px'}));c.append(btn('JSONバックアップを保存',()=>download('omiyage-backup-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify({app:'omiyage-techo',version:1,exportedAt:now(),products:items},null,2),'application/json'),'btn full'));c.append(el('p',{class:'small muted',text:'商品・評価・メモ・写真・登録日をまとめて保存します。定期的にバックアップしてください。'}));let fi=el('input',{type:'file',accept:'.json,application/json'});fi.addEventListener('change',async()=>{let data;try{data=JSON.parse(await fi.files[0].text())}catch{return alert('JSONを読み込めませんでした')}if(!Array.isArray(data.products))return alert('バックアップ形式ではありません');if(!confirm(`バックアップ${data.products.length}件を復元します。\n同じIDの商品は上書きします。続行しますか？`))return;let count=0;for(let x of data.products){if(!x?.name||!PREFS.includes(x.prefecture))continue;let p=normalized(x);p.id=String(x.id||uid());p.createdAt=x.createdAt||now();p.updatedAt=x.updatedAt||p.createdAt;try{await put(p);count++}catch(e){alert('一部のデータを復元できませんでした');break}}toast(count+'件復元しました');render()});c.append(line('バックアップから復元','section'));c.append(fi);m.append(c);let d=card();d.append(line('JSON貼り付け登録','section'));d.append(btn('JSON一括登録を開く',()=>go('import'),'btn full alt'));m.append(d);m.append(el('div',{class:'notice',text:'データはこの端末のブラウザ内に保存されます。ブラウザデータの消去・端末故障・機種変更に備え、バックアップファイルを別の場所に保管してください。'}))}
+
+// Image search export and ZIP image import (no external image requests).
+function photoSearchExport(){
+ const candidates=items.filter(p=>!(p.photos||[]).length).map(p=>({id:p.id,name:p.name,shop:p.shop||'',prefecture:p.prefecture,description:p.description||'',url:p.url||'',sourceUrl:p.sourceUrl||'',photoCount:0}));
+ if(!candidates.length)return alert('写真が0枚の商品はありません');
+ download('omiyage-image-search-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify({app:'omiyage-techo',type:'image-search',version:1,exportedAt:now(),products:candidates},null,2),'application/json');
+ toast(candidates.length+'件の画像検索用リストを出力しました');
+}
+const ZIP_MAX_BYTES=250*1024*1024,ZIP_MAX_IMAGES=1500;
+function zipFindEnd(bytes){for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--)if(bytes[i]===80&&bytes[i+1]===75&&bytes[i+2]===5&&bytes[i+3]===6)return i;throw Error('ZIP形式を確認できません')}
+async function readImageZip(file){
+ if(file.size>ZIP_MAX_BYTES)throw Error('ZIPは250MB以下にしてください');
+ const buffer=await file.arrayBuffer(),dv=new DataView(buffer),u=new Uint8Array(buffer),end=zipFindEnd(u),count=dv.getUint16(end+10,true),dirSize=dv.getUint32(end+12,true),dirOffset=dv.getUint32(end+16,true);
+ if(dv.getUint16(end+8,true)!==count||dv.getUint16(end+4,true)!==0||dv.getUint16(end+6,true)!==0)throw Error('分割ZIPは非対応です');
+ if(count>ZIP_MAX_IMAGES+30||dirOffset+dirSize>u.length)throw Error('ZIPの件数・サイズが上限を超えています');
+ let entries=[],pos=dirOffset,total=0,decoder=new TextDecoder('utf-8');
+ for(let i=0;i<count;i++){
+  if(pos+46>u.length||dv.getUint32(pos,true)!==0x02014b50)throw Error('ZIPの目次が壊れています');
+  let flags=dv.getUint16(pos+8,true),method=dv.getUint16(pos+10,true),compressed=dv.getUint32(pos+20,true),size=dv.getUint32(pos+24,true),nameLen=dv.getUint16(pos+28,true),extra=dv.getUint16(pos+30,true),comment=dv.getUint16(pos+32,true),local=dv.getUint32(pos+42,true);
+  if(pos+46+nameLen+extra+comment>u.length)throw Error('ZIPのファイル名が不正です');
+  let name=decoder.decode(u.subarray(pos+46,pos+46+nameLen));pos+=46+nameLen+extra+comment;
+  if(name.endsWith('/')||name.startsWith('__MACOSX/')||name.split('/').pop().startsWith('.'))continue;
+  if(flags&1||![0,8].includes(method))throw Error('暗号化ZIP・特殊圧縮ZIPには対応していません');
+  if(!/\.(?:jpe?g|png|webp|gif|json)$/i.test(name))continue;
+  total+=size;if(size>15*1024*1024||total>ZIP_MAX_BYTES)throw Error('画像の展開サイズが大きすぎます');
+  if(local+30>u.length||dv.getUint32(local,true)!==0x04034b50)throw Error('ZIP内のファイルが不正です');
+  let offset=local+30+dv.getUint16(local+26,true)+dv.getUint16(local+28,true);
+  if(offset+compressed>u.length)throw Error('ZIPのデータが不足しています');
+  entries.push({name,method,size,offset,compressed});
+ }
+ if(entries.filter(x=>/\.(?:jpe?g|png|webp|gif)$/i.test(x.name)).length>ZIP_MAX_IMAGES)throw Error('画像は1500枚以下にしてください');
+ async function extract(entry){let bytes=u.slice(entry.offset,entry.offset+entry.compressed);if(entry.method===0)return new Blob([bytes]);
+  if(typeof DecompressionStream==='undefined')throw Error('このブラウザはZIP展開に対応していません');
+  let stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  let result=await new Response(stream).blob();if(result.size!==entry.size)throw Error('ZIP内のサイズが一致しません');return result;
+ }
+ return {entries,extract};
+}
+function matchKey(s){return String(s||'').normalize('NFKC').toLocaleLowerCase('ja').replace(/\.(jpg|jpeg|png|webp|gif)$/i,'').replace(/(?:[_\-\s]+(?:\d+|表|裏|front|back))$/i,'').replace(/[\s\-_()（）「」『』・.,，．]/g,'')}
+function editDistance(a,b){let prev=Array.from({length:b.length+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let row=[i];for(let j=1;j<=b.length;j++)row[j]=Math.min(prev[j]+1,row[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));prev=row}return prev[b.length]}
+function guessProduct(name){let base=name.split('/').pop().replace(/\.[^.]+$/,'').replace(/(?:[_\-\s]+\d+)$/,'');let key=matchKey(base);if(!key)return null;
+ let exact=items.filter(p=>matchKey(p.name)===key);if(exact.length===1)return {id:exact[0].id,confidence:'完全一致'};
+ let ranked=items.map(p=>{let k=matchKey(p.name),distance=editDistance(key,k),similarity=1-distance/Math.max(key.length,k.length,1);if(key.length>=4&&k.length>=4&&(key.includes(k)||k.includes(key)))similarity=Math.max(similarity,.85);return {p,similarity}}).sort((a,b)=>b.similarity-a.similarity);
+ if(ranked.length&&ranked[0].similarity>=.58&&(!ranked[1]||ranked[0].similarity-ranked[1].similarity>=.08))return {id:ranked[0].p.id,confidence:'類似候補'};
+ return null;
+}
+async function fingerprint(source){
+ let url=typeof source==='string'?source:URL.createObjectURL(source);
+ try{let img=await new Promise((resolve,reject)=>{let im=new Image();im.onload=()=>resolve(im);im.onerror=()=>reject(Error('画像を読み込めません'));im.src=url});
+ let c=document.createElement('canvas');c.width=9;c.height=8;let ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,9,8);let data=ctx.getImageData(0,0,9,8).data,bits='';
+ for(let y=0;y<8;y++)for(let x=0;x<8;x++){let i=(y*9+x)*4,j=i+4;let a=data[i]*.299+data[i+1]*.587+data[i+2]*.114,b=data[j]*.299+data[j+1]*.587+data[j+2]*.114;bits+=a>b?'1':'0'}return bits;
+ }finally{if(typeof source!=='string')URL.revokeObjectURL(url)}
+}
+function sameFingerprint(a,b){if(!a||!b)return false;let dif=0;for(let i=0;i<a.length;i++)if(a[i]!==b[i])dif++;return dif<=2}
+function zipImportPage(m){
+ m.append(el('div',{class:'notice',text:'画像ZIPを読み込み、商品ID（manifest.json）を優先して照合します。IDがない場合は画像ファイル名から商品を推定します。画像と対応先を確認してから保存します。既存写真は維持します。'}));
+ let fileInput=el('input',{type:'file',accept:'.zip,application/zip',style:'margin:15px 0;width:100%'});m.append(fileInput);
+ let progress=line('','small muted');m.append(progress);let results=el('div');m.append(results);
+ let rows=[],archive=null,working=false;
+ let prepare=btn('ZIPを読み込んで照合',async()=>{
+  if(!fileInput.files?.length)return alert('ZIPファイルを選択してください');prepare.disabled=true;results.replaceChildren();progress.textContent='ZIPを確認中…';
+  try{archive=await readImageZip(fileInput.files[0]);let manifestEntry=archive.entries.find(e=>e.name.split('/').pop()==='manifest.json');let manifest={};
+   if(manifestEntry){try{manifest=JSON.parse(await (await archive.extract(manifestEntry)).text())}catch(e){throw Error('manifest.jsonを読み取れません: '+e.message)}}
+   let mappings=new Map();let groups=Array.isArray(manifest.products)?manifest.products:Array.isArray(manifest.images)?manifest.images:[];
+   for(let p of groups){if(p&&Array.isArray(p.images)){for(let f of p.images){let name=typeof f==='string'?f:f?.file||f?.filename;if(name)mappings.set(name,{id:p.id||p.productId,name:p.name})}}else if(p){let name=p.file||p.filename||p.path;if(name)mappings.set(name,{id:p.id||p.productId,name:p.name})}}
+   rows=archive.entries.filter(e=>/\.(?:jpe?g|png|webp|gif)$/i.test(e.name)).map(e=>{let filename=e.name.split('/').pop(),mapped=mappings.get(e.name)||mappings.get(filename),matched=mapped?.id&&items.find(p=>p.id===mapped.id)?{id:mapped.id,confidence:'商品ID一致'}:guessProduct(e.name);return {entry:e,id:matched?.id||'',confidence:matched?.confidence||'未判定',error:''}});
+   if(!rows.length)throw Error('ZIP内に画像がありません');
+   progress.textContent=`${rows.length}枚の画像を検出しました。対応商品を確認してください。`;
+   showRows();
+  }catch(e){progress.textContent='読み込み失敗：'+e.message}finally{prepare.disabled=false}
+ },'btn full alt');m.append(prepare);
+ function showRows(){results.replaceChildren();let matched=rows.filter(r=>r.id).length;results.append(line(`照合済み ${matched}枚／未指定 ${rows.length-matched}枚`,'section'));
+  let holder=el('div');results.append(holder);let selects=[];
+  rows.forEach((r,i)=>{let c=card();let heading=el('div',{class:'small',text:r.entry.name,style:'overflow-wrap:anywhere;font-weight:700'});c.append(heading);
+   let status=line(r.confidence,'tiny muted');c.append(status);
+   let select=el('select',{class:'search',style:'margin-top:7px'});select.append(el('option',{value:'',text:'取り込まない／未指定'}));
+   for(let p of [...items].sort((a,b)=>a.name.localeCompare(b.name,'ja')))select.append(el('option',{value:p.id,text:`${p.name}（${p.prefecture}）${(p.photos||[]).length?'・既存'+p.photos.length+'枚':''}`}));
+   select.value=r.id;select.onchange=()=>{r.id=select.value;r.confidence='手動指定';status.textContent=r.confidence};c.append(select);holder.append(c);selects.push(select);
+  });
+  let save=btn('確認した画像を一括保存',async()=>{
+   if(working)return;let chosen=rows.filter(r=>r.id);if(!chosen.length)return alert('対応商品が指定されていません');
+   if(!confirm(`${chosen.length}枚を登録先の商品に追加します。既存写真は維持します。続行しますか？`))return;
+   working=true;save.disabled=true;let saved=0,duplicates=0,full=0,failed=0,skipped=rows.length-chosen.length,errors=[];
+   let grouped=new Map();for(let r of chosen){if(!grouped.has(r.id))grouped.set(r.id,[]);grouped.get(r.id).push(r)}
+   for(let [id,group] of grouped){let original=items.find(p=>p.id===id);if(!original){failed+=group.length;continue}
+    let product={...original,photos:[...(original.photos||[])]},hashes=[];
+    for(let photo of product.photos){try{hashes.push(await fingerprint(photo))}catch{hashes.push(null)}}
+    for(let r of group){progress.textContent=`保存中：成功${saved}枚／重複${duplicates}枚／満杯${full}枚／失敗${failed}枚`;
+     if(product.photos.length>=5){full++;continue}
+     try{let blob=await archive.extract(r.entry);let hash=await fingerprint(blob);if(hashes.some(h=>sameFingerprint(h,hash))){duplicates++;continue}
+      let jpeg=await compress(new File([blob],r.entry.name,{type:blob.type||'image/jpeg'}));product.photos.push(jpeg);hashes.push(hash);saved++;
+     }catch(e){failed++;errors.push(r.entry.name+'：'+e.message)}
+    }
+    if(product.photos.length>(original.photos||[]).length){product.updatedAt=now();try{await put(product)}catch(e){let added=product.photos.length-(original.photos||[]).length;saved-=added;failed+=added;errors.push(product.name+'：保存容量不足の可能性')}}
+   }
+   progress.textContent=`完了：保存${saved}枚／重複${duplicates}枚／上限超過${full}枚／未指定${skipped}枚／失敗${failed}枚`;
+   alert(progress.textContent+(errors.length?'\n'+errors.slice(0,5).join('\n'):''));working=false;save.disabled=false;
+  },'btn full');results.append(save);
+ }
+}
+function settings(m){m.append(line('画像の一括管理','section'));let images=card();let zero=items.filter(p=>!(p.photos||[]).length).length;images.append(line(`写真0枚の商品：${zero}件`,'muted small'));images.append(btn('写真0枚の商品リストをJSON出力',photoSearchExport,'btn full alt'));images.append(el('div',{style:'height:10px'}));images.append(btn('画像ZIPを一括取り込み',()=>go('zipimport'),'btn full'));images.append(line('画像検索用JSONをChatGPTに送って画像ZIPを作成し、この画面から取り込めます。','tiny muted'));m.append(images);m.append(line('データ管理','section'));let c=card();c.append(line(`登録商品：${items.length}件`,'muted'));let stats=photoStats();c.append(line(`保存写真：${stats.count}枚／推定画像容量：${(stats.bytes/1024/1024).toFixed(1)}MB`,'muted small'));c.append(line('画像データの概算値です。ブラウザ全体の使用容量とは異なります。','tiny muted'));c.append(el('div',{style:'height:12px'}));c.append(btn('JSONバックアップを保存',()=>download('omiyage-backup-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify({app:'omiyage-techo',version:1,exportedAt:now(),products:items},null,2),'application/json'),'btn full'));c.append(el('p',{class:'small muted',text:'商品・評価・メモ・写真・登録日をまとめて保存します。定期的にバックアップしてください。'}));let fi=el('input',{type:'file',accept:'.json,application/json'});fi.addEventListener('change',async()=>{let data;try{data=JSON.parse(await fi.files[0].text())}catch{return alert('JSONを読み込めませんでした')}if(!Array.isArray(data.products))return alert('バックアップ形式ではありません');if(!confirm(`バックアップ${data.products.length}件を復元します。\n同じIDの商品は上書きします。続行しますか？`))return;let count=0;for(let x of data.products){if(!x?.name||!PREFS.includes(x.prefecture))continue;let p=normalized(x);p.id=String(x.id||uid());p.createdAt=x.createdAt||now();p.updatedAt=x.updatedAt||p.createdAt;try{await put(p);count++}catch(e){alert('一部のデータを復元できませんでした');break}}toast(count+'件復元しました');render()});c.append(line('バックアップから復元','section'));c.append(fi);m.append(c);let d=card();d.append(line('JSON貼り付け登録','section'));d.append(btn('JSON一括登録を開く',()=>go('import'),'btn full alt'));m.append(d);m.append(el('div',{class:'notice',text:'データはこの端末のブラウザ内に保存されます。ブラウザデータの消去・端末故障・機種変更に備え、バックアップファイルを別の場所に保管してください。'}))}
 $('#back').onclick=()=>{if(history.state?.omiyageView&&view.page!=='home')history.back();else go('home')};$('#topAdd').onclick=()=>{editingId=null;draftPhotos=[];go('add')};document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>{let page=b.dataset.nav;if(page==='add'){editingId=null;draftPhotos=[]}go(page)});
 (async()=>{try{db=await openDB();await reload();render();if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(()=>{})}catch(e){$('#main').textContent='保存領域を利用できません。ブラウザのプライベートモードや設定をご確認ください。'}})();
 </script></body></html>
